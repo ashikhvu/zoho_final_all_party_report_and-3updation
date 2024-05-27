@@ -537,7 +537,7 @@
                             <!-- <p>No Credit Limit Set</p> -->
                           </div>
                           <div class="col-md-4">
-                            <h6 class="T-Balance">Balance: {{vendor_obj.current_balance}}</h6>
+                            <h6 class="T-Balance">Balance:{% if transactions  %}{{ tot_balance }}{% else %} {{vendor_obj.current_balance}}{% endif %}</h6>
                           </div>
 
                           <hr>
@@ -550,28 +550,35 @@
                             <thead style="border: 1px solid black; background-color: #383838; color: white;">
                               <tr style="border: 1px solid black;">
 
-                                <th>Transactions</th>
+                              <th>Transactions</th>
                                <th>Type</th>
                                <th>Number</th>
                                <th>Date</th>
                                <th>Total</th>
                                <th>Balance</th>
 
-
-
                               </tr>
                             </thead>
                             <tbody>
                               <tr>
-                                <td style="border: 1px solid black;">{{forloop.counter}}</td>
-
+                                <td style="border: 1px solid black;">{{forloop.counter}}1</td>
                                 <td style="border: 1px solid black;">Opening Balance</td>
                                 <td style="border: 1px solid black;"></td>
-                                <td style="border: 1px solid black;">{% now 'd-m-y' %}</td>
+                                <td style="border: 1px solid black;">{% now 'Y-m-d' %}</td>
                                 <td style="border: 1px solid black;">{{vendor_obj.opening_balance}}</td>
                                 <td style="border: 1px solid black;"><span class="T-Balance">{{vendor_obj.opening_balance}}</span></td>
 
                               </tr>
+                              {% for tran in transactions %}
+                              <tr>
+                                <td style="border: 1px solid black;">{{ forloop.counter|add:'1' }}</td>
+                                <td style="border: 1px solid black;">{{ tran.object_type }}</td>
+                                <td style="border: 1px solid black;">{{ tran.object_number }}</td>
+                                <td style="border: 1px solid black;">{{ tran.object_date|date:'Y-m-d' }}</td>
+                                <td style="border: 1px solid black;">{{ tran.object_total|floatformat:'1' }}</td>
+                                <td style="border: 1px solid black;">{{ tran.object_balance|floatformat:'1' }}</td>
+                              </tr>
+                              {% endfor %}
                             </tbody>
                           </table>
                         </div>

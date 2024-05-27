@@ -36,7 +36,7 @@
         </div>
         <div class="col-md-4">
           <h6 class="T-Balance" style=" color: #1e0a0a;
-          font-weight: 800;">Balance: {{vendor_obj.current_balance}}</h6>
+          font-weight: 800;">Balance:{% if transactions %} {{ tot_balance }} {% else %}{{vendor_obj.current_balance}}{% endif %}</h6>
         </div>
 
 
@@ -58,15 +58,25 @@
             </tr>
           </thead>
           <tbody>
-            <tr style="border: 1px solid black; height: 40px;">
-                <td style="text-align: center;">{{forloop.counter}}</td>
+            <tr>
+              <td style="border: 1px solid black;">{{forloop.counter}}1</td>
+              <td style="border: 1px solid black;">Opening Balance</td>
+              <td style="border: 1px solid black;"></td>
+              <td style="border: 1px solid black;">{% now 'Y-m-d' %}</td>
+              <td style="border: 1px solid black;">{{vendor_obj.opening_balance}}</td>
+              <td style="border: 1px solid black;"><span class="T-Balance">{{vendor_obj.opening_balance}}</span></td>
 
-              <td style="text-align: center;">Opening Balance</td>
-              <td></td>
-              <td style="text-align: center;">{% now 'd-m-y' %}</td>
-              <td style="text-align: center;">{{ vendor_obj.opening_balance }}</td>
-              <td style="text-align: center;">{{ vendor_obj.opening_balance }}</td>
             </tr>
+            {% for tran in transactions %}
+            <tr>
+              <td style="border: 1px solid black;">{{ forloop.counter|add:'1' }}</td>
+              <td style="border: 1px solid black;">{{ tran.object_type }}</td>
+              <td style="border: 1px solid black;">{{ tran.object_number }}</td>
+              <td style="border: 1px solid black;">{{ tran.object_date|date:'Y-m-d' }}</td>
+              <td style="border: 1px solid black;">{{ tran.object_total|floatformat:'1' }}</td>
+              <td style="border: 1px solid black;">{{ tran.object_balance|floatformat:'1' }}</td>
+            </tr>
+            {% endfor %}
           </tbody>
         </table>
         

@@ -1037,6 +1037,11 @@ urlpatterns = [
     path('PartyReportByItemCustomized', views.PartyReportByItemCustomized, name='PartyReportByItemCustomized'),
     path('sharePartyReportByItemToEmail', views.sharePartyReportByItemToEmail, name='sharePartyReportByItemToEmail'),
     #---------------- Zoho Final Party Report by item  - Ginto Shaji - end-------------------->
+
+    # ashikhvu----------------------------All partei report--------------------------------------
+    path('all_parties', views.all_parties, name='all_parties'),
+    # path('salesByCustomerReportCustomized', views.salesByCustomerReportCustomized, name='salesByCustomerReportCustomized'),
+    # path('shareSalesByCustomerReportToEmail', views.shareSalesByCustomerReportToEmail, name='shareSalesByCustomerReportToEmail'),
     
     re_path(r'^static/(?P<path>.*)$', serve,{'document_root': settings.STATIC_ROOT}),
 ]

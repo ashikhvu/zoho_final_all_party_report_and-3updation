@@ -1088,7 +1088,8 @@ def account_dropdown(request):
 
 
     
-    
+from django.db.models import Value,CharField,F,Q,Case,When
+from django.db.models.functions import Concat
 def itemsoverview(request,pk):                                                                
     if 'login_id' in request.session:
         login_id = request.session['login_id']
@@ -1096,52 +1097,88 @@ def itemsoverview(request,pk):
             return redirect('/')
     log_details= LoginDetails.objects.get(id=login_id)
     if log_details.user_type == 'Staff':
-                dash_details = StaffDetails.objects.get(login_details=log_details)
-                item=Items.objects.filter(company=dash_details.company)
-                allmodules= ZohoModules.objects.get(company=dash_details.company,status='New')
-              
-                items=Items.objects.filter(company=dash_details.company)
-                selitem=Items.objects.get(id=pk)
-                est_comments=Items_comments.objects.filter(Items=pk)
-                stock_value=selitem.opening_stock*selitem.purchase_price  
-                latest_date = Item_Transaction_History.objects.filter(items_id=pk).aggregate(latest_date=Max('Date'))['latest_date']    
-                filtered_data = Item_Transaction_History.objects.filter(Date=latest_date, items_id=pk)
-                context = {
-                     'details': dash_details,
-                
-                    'allmodules': allmodules,
-                    'items':items,
-                    'selitem':selitem,
-                    'stock_value':stock_value,
-                    'latest_item_id':filtered_data,
-                    'est_comments':est_comments
-                }
-                return render(request, 'zohomodules/items/itemsoverview.html',context)
+        dash_details = StaffDetails.objects.get(login_details=log_details)
+        cmp = dash_details.company
     if log_details.user_type == 'Company':
-            dash_details = CompanyDetails.objects.get(login_details=log_details)
-       
-            allmodules= ZohoModules.objects.get(company=dash_details,status='New')
-            items=Items.objects.filter(company=dash_details)
-            selitem=Items.objects.get(id=pk)
-            est_comments=Items_comments.objects.filter(Items=pk)
-            stock_value=selitem.opening_stock*selitem.purchase_price  
-            latest_date = Item_Transaction_History.objects.filter(items_id=pk).aggregate(latest_date=Max('Date'))['latest_date']    
-            filtered_data = Item_Transaction_History.objects.filter(Date=latest_date, items_id=pk)
-            context = {
-                    'details': dash_details,
-                   
-                    'allmodules': allmodules,
-                    'items':items,
-                    'selitem':selitem,
-                    'stock_value':stock_value,
-                    'latest_item_id':filtered_data,
-                    'est_comments':est_comments
-            }
-    
-            return render(request, 'zohomodules/items/itemsoverview.html',context)
+        dash_details = CompanyDetails.objects.get(login_details=log_details)
+        cmp = dash_details
 
+    allmodules= ZohoModules.objects.get(company=cmp,status='New')
+    item=Items.objects.filter(company=cmp)
+    items=Items.objects.filter(company=cmp)
+    selitem=Items.objects.get(id=pk)
+    est_comments=Items_comments.objects.filter(Items=pk)
+    stock_value=selitem.opening_stock*selitem.purchase_price  
+    latest_date = Item_Transaction_History.objects.filter(items_id=pk).aggregate(latest_date=Max('Date'))['latest_date']    
+    filtered_data = Item_Transaction_History.objects.filter(Date=latest_date, items_id=pk)
 
-    return render(request, 'zohomodules/items/itemsoverview.html')
+    ret_inv = RetainerInvoice.objects.filter(company=cmp)
+    recurr_bill = Recurring_bills.objects.filter(company=cmp)
+    transactions = list(invoiceitems.objects.filter(company=cmp,Items=selitem).annotate(object_type=Value("Invoice",output_field=CharField()),object_name=Concat(F('logindetails__first_name'), Value(' '), F('logindetails__last_name'), output_field=CharField()),object_date=F("invoice__date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('invoice__status'))
+    )+list(
+        SalesOrderItems.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Sales Order",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("sales_order__sales_order_date"),object_qty=F('quantity'),object_price=F('price'),
+        object_status= Case(
+            When(sales_order__status='Save',then=Value('Saved')),
+            default=Value('Draft'),
+            output_field=CharField()
+            )
+        )
+    )+list(
+        Reccurring_Invoice_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Recurring Invoice",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("reccuring_invoice__start_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('reccuring_invoice__status'))
+    )+list(
+        Retaineritems.objects.filter(item=selitem,retainer__in=ret_inv).annotate(object_type=Value("Retainer Invoice",output_field=CharField()),object_name=Concat(F('retainer__logindetails__first_name'), Value(' '), F('retainer__logindetails__last_name'), output_field=CharField()),object_date=F("retainer__retainer_invoice_date"),object_qty=F('quantity'),object_price=F('item__selling_price'),
+        object_status=Case(
+            When(retainer__is_sent=True,then=Value('Saved')),
+            default=Value('Draft'),
+            output_field=CharField()
+            )
+        )
+    )+list(
+        Credit_Note_Items.objects.filter(company=cmp,items=selitem).annotate(object_type=Value("Credit Note",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("credit_note__credit_note_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('credit_note__status'))
+    )+list(
+        Delivery_challan_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Delivery Challan",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("delivery_challan__challan_date"),object_qty=F('quantity'),object_price=F('price'),
+        object_status=Case(
+            When(delivery_challan__status="save",then=Value('Saved')),
+            default=Value('Draft'),
+            output_field=CharField()
+            )
+        )
+    )+list(
+        BillItems.objects.filter(Company=cmp,item_id=selitem).annotate(object_type=Value("Purchase Bill",output_field=CharField()),object_name=Concat(F('Login_Details__first_name'), Value(' '), F('Login_Details__last_name'), output_field=CharField()),object_date=F("Bills__Bill_Date"),object_qty=F('qty'),object_price=F('price'),object_status=F('Bills__Status'))
+    )+list(
+        RecurrItemsList.objects.filter(recurr_bill_id__in=recurr_bill,item_id=selitem).annotate(object_type=Value("Recurring Bill",output_field=CharField()),object_name=Concat(F('recurr_bill_id__login_details__first_name'), Value(' '), F('recurr_bill_id__login_details__last_name'), output_field=CharField()),object_date=F("recurr_bill_id__rec_bill_date"),object_qty=F('qty'),object_price=F('price'),
+        object_status=Case(
+            When(recurr_bill_id__status="save",then=Value('Saved')),
+            default=Value('Draft'),
+            output_field=CharField()
+            )
+        )
+    )+list(
+        debitnote_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Debit Note",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("debit_note__debitnote_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('debit_note__status'))
+    )+list(
+        PurchaseOrderItems.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Purchase Order",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("purchase_order__purchase_order_date"),object_qty=F('quantity'),object_price=F('price'),
+        object_status=Case(
+            When(purchase_order__status="save",then=Value('Saved')),
+            default=Value('Draft'),
+            output_field=CharField()
+            )
+        )
+    )+list(
+        Eway_bill_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Eway Bill",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("EwayBill__start_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('EwayBill__status'))
+    )
+
+    context = {
+        'details': dash_details,
+        'allmodules': allmodules,
+        'items':items,
+        'selitem':selitem,
+        'stock_value':stock_value,
+        'latest_item_id':filtered_data,
+        'est_comments':est_comments,
+        "transactions":transactions,
+    }
+    return render(request, 'zohomodules/items/itemsoverview.html',context)
+
 
 
 def edititems(request, pr):                                                                #new by tinto mt
@@ -1324,11 +1361,78 @@ def shareItemToEmail(request,pt):                                               
                 print(emails_list)
                 print('1')
            
-           
-                item = Items.objects.get(id=pt)
+                if 'login_id' in request.session:
+                    login_id = request.session['login_id']
+                if 'login_id' not in request.session:
+                    return redirect('/')
+                selitem = Items.objects.get(id=pt)
+                log_details= LoginDetails.objects.get(id=login_id)
+                if log_details.user_type == 'Staff':
+                    dash_details = StaffDetails.objects.get(login_details=log_details)
+                    cmp = dash_details.company
+                if log_details.user_type == 'Company':
+                    dash_details = CompanyDetails.objects.get(login_details=log_details)
+                    cmp = dash_details
+
+                ret_inv = RetainerInvoice.objects.filter(company=cmp)
+                recurr_bill = Recurring_bills.objects.filter(company=cmp)
+                transactions = list(invoiceitems.objects.filter(company=cmp,Items=selitem).annotate(object_type=Value("Invoice",output_field=CharField()),object_name=Concat(F('logindetails__first_name'), Value(' '), F('logindetails__last_name'), output_field=CharField()),object_date=F("invoice__date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('invoice__status'))
+                )+list(
+                    SalesOrderItems.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Sales Order",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("sales_order__sales_order_date"),object_qty=F('quantity'),object_price=F('price'),
+                    object_status= Case(
+                        When(sales_order__status='Save',then=Value('Saved')),
+                        default=Value('Draft'),
+                        output_field=CharField()
+                        )
+                    )
+                )+list(
+                    Reccurring_Invoice_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Recurring Invoice",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("reccuring_invoice__start_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('reccuring_invoice__status'))
+                )+list(
+                    Retaineritems.objects.filter(item=selitem,retainer__in=ret_inv).annotate(object_type=Value("Retainer Invoice",output_field=CharField()),object_name=Concat(F('retainer__logindetails__first_name'), Value(' '), F('retainer__logindetails__last_name'), output_field=CharField()),object_date=F("retainer__retainer_invoice_date"),object_qty=F('quantity'),object_price=F('item__selling_price'),
+                    object_status=Case(
+                        When(retainer__is_sent=True,then=Value('Saved')),
+                        default=Value('Draft'),
+                        output_field=CharField()
+                        )
+                    )
+                )+list(
+                    Credit_Note_Items.objects.filter(company=cmp,items=selitem).annotate(object_type=Value("Credit Note",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("credit_note__credit_note_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('credit_note__status'))
+                )+list(
+                    Delivery_challan_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Delivery Challan",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("delivery_challan__challan_date"),object_qty=F('quantity'),object_price=F('price'),
+                    object_status=Case(
+                        When(delivery_challan__status="save",then=Value('Saved')),
+                        default=Value('Draft'),
+                        output_field=CharField()
+                        )
+                    )
+                )+list(
+                    BillItems.objects.filter(Company=cmp,item_id=selitem).annotate(object_type=Value("Purchase Bill",output_field=CharField()),object_name=Concat(F('Login_Details__first_name'), Value(' '), F('Login_Details__last_name'), output_field=CharField()),object_date=F("Bills__Bill_Date"),object_qty=F('qty'),object_price=F('price'),object_status=F('Bills__Status'))
+                )+list(
+                    RecurrItemsList.objects.filter(recurr_bill_id__in=recurr_bill,item_id=selitem).annotate(object_type=Value("Recurring Bill",output_field=CharField()),object_name=Concat(F('recurr_bill_id__login_details__first_name'), Value(' '), F('recurr_bill_id__login_details__last_name'), output_field=CharField()),object_date=F("recurr_bill_id__rec_bill_date"),object_qty=F('qty'),object_price=F('price'),
+                    object_status=Case(
+                        When(recurr_bill_id__status="save",then=Value('Saved')),
+                        default=Value('Draft'),
+                        output_field=CharField()
+                        )
+                    )
+                )+list(
+                    debitnote_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Debit Note",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("debit_note__debitnote_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('debit_note__status'))
+                )+list(
+                    PurchaseOrderItems.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Purchase Order",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("purchase_order__purchase_order_date"),object_qty=F('quantity'),object_price=F('price'),
+                    object_status=Case(
+                        When(purchase_order__status="save",then=Value('Saved')),
+                        default=Value('Draft'),
+                        output_field=CharField()
+                        )
+                    )
+                )+list(
+                    Eway_bill_item.objects.filter(company=cmp,item=selitem).annotate(object_type=Value("Eway Bill",output_field=CharField()),object_name=Concat(F('login_details__first_name'), Value(' '), F('login_details__last_name'), output_field=CharField()),object_date=F("EwayBill__start_date"),object_qty=F('quantity'),object_price=F('price'),object_status=F('EwayBill__status'))
+                )
+
+
                 context = {
-                
-                    'selitem':item,
+                    'selitem':selitem,
+                    'transactions':transactions,
                 }
                 print('2')
                 template_path = 'zohomodules/items/itememailpdf.html'
@@ -5919,38 +6023,55 @@ def delete_vendor(request,pk):
 
 
 def view_vendor_details(request,pk):
-    if 'login_id' in request.session:
-        if request.session.has_key('login_id'):
-            log_id = request.session['login_id']
-           
-        else:
-            return redirect('/')
-        log_details= LoginDetails.objects.get(id=log_id)
-        if log_details.user_type=='Staff':
-            staff_details=StaffDetails.objects.get(login_details=log_details)
-            dash_details = CompanyDetails.objects.get(id=staff_details.company.id)
+    if 'login_id' in request.session and request.session.has_key('login_id'):
+        log_id = request.session['login_id']
+    else:
+        return redirect('/')
+    log_details= LoginDetails.objects.get(id=log_id)
+    if log_details.user_type=='Staff':
+        staff_details=StaffDetails.objects.get(login_details=log_details)
+        dash_details = CompanyDetails.objects.get(id=staff_details.company.id)
+        cmp=dash_details
+    else:    
+        dash_details = CompanyDetails.objects.get(login_details=log_details)
+        cmp=dash_details
+    allmodules= ZohoModules.objects.get(company=dash_details,status='New')
 
-        else:    
-            dash_details = CompanyDetails.objects.get(login_details=log_details)
-        allmodules= ZohoModules.objects.get(company=dash_details,status='New')
+    vendor_obj=Vendor.objects.get(id=pk)
 
-        vendor_obj=Vendor.objects.get(id=pk)
+    # Getting all vendor to disply on the left side of vendor_detailsnew page
+    vendor_objs=Vendor.objects.filter(company=cmp)
 
-        # Getting all vendor to disply on the left side of vendor_detailsnew page
-        vendor_objs=Vendor.objects.filter(company=dash_details)
+    vendor_comments=Vendor_comments_table.objects.filter(vendor=vendor_obj)
+    vendor_history=VendorHistory.objects.filter(vendor=vendor_obj)
 
-        vendor_comments=Vendor_comments_table.objects.filter(vendor=vendor_obj)
-        vendor_history=VendorHistory.objects.filter(vendor=vendor_obj)
-    
+    recurr_bill = Recurring_bills.objects.filter(company=cmp)
+
+    transactions = list(
+        BillItems.objects.filter(Company=cmp,Bills__Vendor=vendor_obj).annotate(object_type=Value("Purchase Bill",output_field=CharField()),object_number=F('Bills__Bill_Number'),object_date=F("Bills__Bill_Date"),object_total=F('Bills__Grand_Total'),object_balance=F('Bills__Balance'))
+    )+list(
+        RecurrItemsList.objects.filter(recurr_bill_id__in=recurr_bill,recurr_bill_id__vendor_details=vendor_obj).annotate(object_type=Value("Recurring Bill",output_field=CharField()),object_number=F('recurr_bill_id__recc_bill_no'),object_date=F("recurr_bill_id__rec_bill_date"),object_total=F('recurr_bill_id__total'),object_balance=F('recurr_bill_id__bal'))
+    )+list(
+        debitnote_item.objects.filter(company=cmp,debit_note__vendor=vendor_obj).annotate(object_type=Value("Debit Note",output_field=CharField()),object_number=F('debit_note__debitnote_no'),object_date=F("debit_note__debitnote_date"),object_total=F('debit_note__grandtotal'),object_balance=F('debit_note__balance'))
+    )+list(
+        PurchaseOrderItems.objects.filter(company=cmp,purchase_order__vendor=vendor_obj).annotate(object_type=Value("Purchase Order",output_field=CharField()),object_number=Value('',output_field=CharField()),object_date=F("purchase_order__purchase_order_date"),object_total=F('purchase_order__grand_total'),object_balance=F('purchase_order__balance'))
+    )
+
+    tot_balance = 0
+    for i in transactions:
+        tot_balance+=float(i.object_balance)
+    tot_balance= float(vendor_obj.current_balance) - float(tot_balance)
+
     content = {
-                'details': dash_details,
-               
-                'allmodules': allmodules,
-                'vendor_obj':vendor_obj,
-                'log_details':log_details,
-                'vendor_objs':vendor_objs,
-                'vendor_comments':vendor_comments,
-                'vendor_history':vendor_history,
+        'details': dash_details,
+        'allmodules': allmodules,
+        'vendor_obj':vendor_obj,
+        'log_details':log_details,
+        'vendor_objs':vendor_objs,
+        'vendor_comments':vendor_comments,
+        'vendor_history':vendor_history,
+        'transactions':transactions,
+        'tot_balance':tot_balance
         }
     return render(request,'zohomodules/vendor/vendor_detailsnew.html',content)
 
@@ -10665,40 +10786,68 @@ def view_customer_details(request,pk):
     if 'login_id' in request.session:
         if request.session.has_key('login_id'):
             log_id = request.session['login_id']
-           
         else:
             return redirect('/')
     
-        log_details= LoginDetails.objects.get(id=log_id)
-        if log_details.user_type=='Staff':
-            dash_details = StaffDetails.objects.get(login_details=log_details)
-            comp_details=CompanyDetails.objects.get(id=dash_details.company.id)
+    log_details= LoginDetails.objects.get(id=log_id)
+    if log_details.user_type=='Staff':
+        dash_details = StaffDetails.objects.get(login_details=log_details)
+        cmp=CompanyDetails.objects.get(id=dash_details.company.id)
 
-        else:    
-            dash_details = CompanyDetails.objects.get(login_details=log_details)
-            comp_details=CompanyDetails.objects.get(login_details=log_details)
+    else:    
+        dash_details = CompanyDetails.objects.get(login_details=log_details)
+        cmp=CompanyDetails.objects.get(login_details=log_details)
 
-            
-        allmodules= ZohoModules.objects.get(company=comp_details,status='New')
-   
+        
+    allmodules= ZohoModules.objects.get(company=cmp,status='New')
 
-        vendor_obj=Customer.objects.get(id=pk)
 
-        # Getting all vendor to disply on the left side of vendor_detailsnew page
-        vendor_objs=Customer.objects.filter(company=comp_details)
+    vendor_obj=Customer.objects.get(id=pk)
 
-        vendor_comments=Customer_comments_table.objects.filter(customer=vendor_obj)
-        vendor_history=CustomerHistory.objects.filter(customer=vendor_obj)
+    # Getting all vendor to disply on the left side of vendor_detailsnew page
+    vendor_objs=Customer.objects.filter(company=cmp)
+
+    vendor_comments=Customer_comments_table.objects.filter(customer=vendor_obj)
+    vendor_history=CustomerHistory.objects.filter(customer=vendor_obj)
+
+
+    customer_obj=Customer.objects.get(id=pk)
+    ret_inv = RetainerInvoice.objects.filter(company=cmp)
+    recurr_bill = Recurring_bills.objects.filter(company=cmp)
+
+    transactions = list(
+        invoiceitems.objects.filter(company=cmp,invoice__customer=customer_obj).annotate(object_type=Value("Invoice",output_field=CharField()),object_number=F('invoice__invoice_number'),object_date=F("invoice__date"),object_total=F('invoice__sub_total'),object_balance=F('invoice__balance'))
+    )+list(
+        SalesOrderItems.objects.filter(company=cmp,sales_order__customer=customer_obj).annotate(object_type=Value("Sales Order",output_field=CharField()),object_number=F('sales_order__sales_order_number'),object_date=F("sales_order__sales_order_date"),object_total=F('sales_order__grand_total'),object_balance=F('sales_order__balance'))
+    )+list(
+        Reccurring_Invoice_item.objects.filter(company=cmp,reccuring_invoice__customer=customer_obj).annotate(object_type=Value("Recurring Invoice",output_field=CharField()),object_number=F('reccuring_invoice__rec_invoice_no'),object_date=F("reccuring_invoice__start_date"),object_total=F('reccuring_invoice__grandtotal'),object_balance=F('reccuring_invoice__balance'))
+    )+list(
+        Retaineritems.objects.filter(retainer__in=ret_inv,retainer__customer_name=customer_obj).annotate(object_type=Value("Retainer Invoice",output_field=CharField()),object_number=F('retainer__retainer_invoice_number'),object_date=F("retainer__retainer_invoice_date"),object_total=F('retainer__total_amount'),object_balance=F('retainer__balance'))
+    )+list(
+        Credit_Note_Items.objects.filter(company=cmp,credit_note__customer=customer_obj).annotate(object_type=Value("Credit Note",output_field=CharField()),object_number=F('credit_note__credit_note_number'),object_date=F("credit_note__credit_note_date"),object_total=F('credit_note__grand_total'),object_balance=F('credit_note__balance'))
+    )+list(
+        Delivery_challan_item.objects.filter(company=cmp,delivery_challan__customer=customer_obj).annotate(object_type=Value("Delivery Challan",output_field=CharField()),object_number=F('delivery_challan__challan_number'),object_date=F("delivery_challan__challan_date"),object_total=F('delivery_challan__grand_total'),object_balance=F('delivery_challan__balance'))
+    )
+
+    tot_balance = 0
+    for i in transactions:
+        tot_balance+=float(i.object_balance)
+    
+    print(float(vendor_obj.current_balance))
+    print(float(tot_balance))
+    tot_balance=float(vendor_obj.current_balance)-float(tot_balance)
+    print(tot_balance)
     
     content = {
                 'details': dash_details,
-               
                 'allmodules': allmodules,
                 'vendor_obj':vendor_obj,
                 'log_details':log_details,
                 'vendor_objs':vendor_objs,
                 'vendor_comments':vendor_comments,
                 'vendor_history':vendor_history,
+                'transactions':transactions,
+                'tot_balance':tot_balance,
         }
     return render(request,'zohomodules/customer/customer_detailsnew.html',content)    
 
@@ -10907,19 +11056,42 @@ def customer_shareemail(request,pk):
         log_details= LoginDetails.objects.get(id=log_id)
         if log_details.user_type=='Staff':
             dash_details = StaffDetails.objects.get(login_details=log_details)
-            comp_details=CompanyDetails.objects.get(id=dash_details.company.id)
+            cmp=CompanyDetails.objects.get(id=dash_details.company.id)
 
         else:    
             dash_details = CompanyDetails.objects.get(login_details=log_details)
-            comp_details=CompanyDetails.objects.get(login_details=log_details)
+            cmp=CompanyDetails.objects.get(login_details=log_details)
 
             
-        allmodules= ZohoModules.objects.get(company=comp_details,status='New')
+        allmodules= ZohoModules.objects.get(company=cmp,status='New')
     
     
         vendor_obj=Customer.objects.get(id=pk)
 
-        context = {'vendor_obj':vendor_obj,'details':dash_details}
+        customer_obj=Customer.objects.get(id=pk)
+        ret_inv = RetainerInvoice.objects.filter(company=cmp)
+        recurr_bill = Recurring_bills.objects.filter(company=cmp)
+
+        transactions = list(
+            invoiceitems.objects.filter(company=cmp,invoice__customer=customer_obj).annotate(object_type=Value("Invoice",output_field=CharField()),object_number=F('invoice__invoice_number'),object_date=F("invoice__date"),object_total=F('invoice__sub_total'),object_balance=F('invoice__balance'))
+        )+list(
+            SalesOrderItems.objects.filter(company=cmp,sales_order__customer=customer_obj).annotate(object_type=Value("Sales Order",output_field=CharField()),object_number=F('sales_order__sales_order_number'),object_date=F("sales_order__sales_order_date"),object_total=F('sales_order__grand_total'),object_balance=F('sales_order__balance'))
+        )+list(
+            Reccurring_Invoice_item.objects.filter(company=cmp,reccuring_invoice__customer=customer_obj).annotate(object_type=Value("Recurring Invoice",output_field=CharField()),object_number=F('reccuring_invoice__rec_invoice_no'),object_date=F("reccuring_invoice__start_date"),object_total=F('reccuring_invoice__grandtotal'),object_balance=F('reccuring_invoice__balance'))
+        )+list(
+            Retaineritems.objects.filter(retainer__in=ret_inv,retainer__customer_name=customer_obj).annotate(object_type=Value("Retainer Invoice",output_field=CharField()),object_number=F('retainer__retainer_invoice_number'),object_date=F("retainer__retainer_invoice_date"),object_total=F('retainer__total_amount'),object_balance=F('retainer__balance'))
+        )+list(
+            Credit_Note_Items.objects.filter(company=cmp,credit_note__customer=customer_obj).annotate(object_type=Value("Credit Note",output_field=CharField()),object_number=F('credit_note__credit_note_number'),object_date=F("credit_note__credit_note_date"),object_total=F('credit_note__grand_total'),object_balance=F('credit_note__balance'))
+        )+list(
+            Delivery_challan_item.objects.filter(company=cmp,delivery_challan__customer=customer_obj).annotate(object_type=Value("Delivery Challan",output_field=CharField()),object_number=F('delivery_challan__challan_number'),object_date=F("delivery_challan__challan_date"),object_total=F('delivery_challan__grand_total'),object_balance=F('delivery_challan__balance'))
+        )
+
+        tot_balance = 0
+        for i in transactions:
+            tot_balance+=float(i.object_balance)
+        tot_balance=float(vendor_obj.current_balance)-float(tot_balance)
+
+        context = {'vendor_obj':vendor_obj,'details':dash_details,'transactions':transactions,'tot_balance':tot_balance}
         if request.method == 'POST':
             try:
                 emails_string = request.POST['email_ids']
@@ -53345,3 +53517,145 @@ def sharePartyReportByItemToEmail(request):
         return redirect('PartyReportByItem')
 
 #---------------- Zoho Final Party Report by item - Ginto Shaji - End-------------------->
+
+
+def all_parties(request):
+    if 'login_id' in request.session:
+        login_id = request.session['login_id']
+    else:
+        return redirect('/')
+    log_details= LoginDetails.objects.get(id=login_id)
+    if log_details.user_type == 'Staff':
+        dash_details = StaffDetails.objects.get(login_details=log_details)
+        cmp = dash_details.company
+    if log_details.user_type == 'Company':
+        dash_details = CompanyDetails.objects.get(login_details=log_details)
+        cmp = dash_details
+
+    allmodules= ZohoModules.objects.get(company=cmp,status='New')
+
+    customers = Customer.objects.filter(company=cmp)
+    vendors = Vendor.objects.filter(company=cmp)
+    
+    ret_inv = RetainerInvoice.objects.filter(company=cmp)
+    recurr_bill = Recurring_bills.objects.filter(company=cmp)
+
+    transaction = request.POST.get('transactions')
+
+    if request.method == 'POST':
+        startDate = request.POST.get('from_date')
+        endDate = request.POST.get('to_date')
+        if startDate == "":
+            startDate = None
+        if endDate == "":
+            endDate = None
+        
+        cust_transactions = list(
+            invoiceitems.objects.filter(company=cmp,invoice__customer__in=customers,invoice__date__range=[startDate,endDate]).annotate(object_customer_id=F('invoice__customer'),object_type=Value("Invoice",output_field=CharField()),object_number=F('invoice__invoice_number'),object_date=F("invoice__date"),object_total=F('invoice__sub_total'),object_balance=F('invoice__balance'))
+        )+list(
+            SalesOrderItems.objects.filter(company=cmp,sales_order__customer__in=customers,sales_order__sales_order_date__range=[startDate,endDate]).annotate(object_customer_id=F('sales_order__customer'),object_type=Value("Sales Order",output_field=CharField()),object_number=F('sales_order__sales_order_number'),object_date=F("sales_order__sales_order_date"),object_total=F('sales_order__grand_total'),object_balance=F('sales_order__balance'))
+        )+list(
+            Reccurring_Invoice_item.objects.filter(company=cmp,reccuring_invoice__customer__in=customers,reccuring_invoice__start_date__range=[startDate,endDate]).annotate(object_customer_id=F('reccuring_invoice__customer'),object_type=Value("Recurring Invoice",output_field=CharField()),object_number=F('reccuring_invoice__rec_invoice_no'),object_date=F("reccuring_invoice__start_date"),object_total=F('reccuring_invoice__grandtotal'),object_balance=F('reccuring_invoice__balance'))
+        )+list(
+            Retaineritems.objects.filter(retainer__in=ret_inv,retainer__customer_name__in=customers,retainer__retainer_invoice_date__range=[startDate,endDate]).annotate(object_customer_id=F('retainer__customer_name'),object_type=Value("Retainer Invoice",output_field=CharField()),object_number=F('retainer__retainer_invoice_number'),object_date=F("retainer__retainer_invoice_date"),object_total=F('retainer__total_amount'),object_balance=F('retainer__balance'))
+        )+list(
+            Credit_Note_Items.objects.filter(company=cmp,credit_note__customer__in=customers,credit_note__credit_note_date__range=[startDate,endDate]).annotate(object_customer_id=F('credit_note__customer'),object_type=Value("Credit Note",output_field=CharField()),object_number=F('credit_note__credit_note_number'),object_date=F("credit_note__credit_note_date"),object_total=F('credit_note__grand_total'),object_balance=F('credit_note__balance'))
+        )+list(
+            Delivery_challan_item.objects.filter(company=cmp,delivery_challan__customer__in=customers,delivery_challan__challan_date__range=[startDate,endDate]).annotate(object_customer_id=F('delivery_challan__customer'),object_type=Value("Delivery Challan",output_field=CharField()),object_number=F('delivery_challan__challan_number'),object_date=F("delivery_challan__challan_date"),object_total=F('delivery_challan__grand_total'),object_balance=F('delivery_challan__balance'))
+        )
+
+
+        vendor_transactions = list(
+            BillItems.objects.filter(Company=cmp,Bills__Vendor__in=vendors,Bills__Bill_Date__range=[startDate,endDate]).annotate(object_vendor_id=F('Bills__Vendor'),object_type=Value("Purchase Bill",output_field=CharField()),object_number=F('Bills__Bill_Number'),object_date=F("Bills__Bill_Date"),object_total=F('Bills__Grand_Total'),object_balance=F('Bills__Balance'))
+        )+list(
+            RecurrItemsList.objects.filter(recurr_bill_id__in=recurr_bill,recurr_bill_id__vendor_details__in=vendors,recurr_bill_id__rec_bill_date__range=[startDate,endDate]).annotate(object_vendor_id=F('recurr_bill_id__vendor_details'),object_type=Value("Recurring Bill",output_field=CharField()),object_number=F('recurr_bill_id__recc_bill_no'),object_date=F("recurr_bill_id__rec_bill_date"),object_total=F('recurr_bill_id__total'),object_balance=F('recurr_bill_id__bal'))
+        )+list(
+            debitnote_item.objects.filter(company=cmp,debit_note__vendor__in=vendors,debit_note__debitnote_date__range=[startDate,endDate]).annotate(object_vendor_id=F('debit_note__vendor'),object_type=Value("Debit Note",output_field=CharField()),object_number=F('debit_note__debitnote_no'),object_date=F("debit_note__debitnote_date"),object_total=F('debit_note__grandtotal'),object_balance=F('debit_note__balance'))
+        )+list(
+            PurchaseOrderItems.objects.filter(company=cmp,purchase_order__vendor__in=vendors,purchase_order__purchase_order_date__range=[startDate,endDate]).annotate(object_vendor_id=F('purchase_order__vendor'),object_type=Value("Purchase Order",output_field=CharField()),object_number=Value('',output_field=CharField()),object_date=F("purchase_order__purchase_order_date"),object_total=F('purchase_order__grand_total'),object_balance=F('purchase_order__balance'))
+        )
+    else:
+        cust_transactions = list(
+            invoiceitems.objects.filter(company=cmp,invoice__customer__in=customers).annotate(object_customer_id=F('invoice__customer'),object_type=Value("Invoice",output_field=CharField()),object_number=F('invoice__invoice_number'),object_date=F("invoice__date"),object_total=F('invoice__sub_total'),object_balance=F('invoice__balance'))
+        )+list(
+            SalesOrderItems.objects.filter(company=cmp,sales_order__customer__in=customers).annotate(object_customer_id=F('sales_order__customer'),object_type=Value("Sales Order",output_field=CharField()),object_number=F('sales_order__sales_order_number'),object_date=F("sales_order__sales_order_date"),object_total=F('sales_order__grand_total'),object_balance=F('sales_order__balance'))
+        )+list(
+            Reccurring_Invoice_item.objects.filter(company=cmp,reccuring_invoice__customer__in=customers).annotate(object_customer_id=F('reccuring_invoice__customer'),object_type=Value("Recurring Invoice",output_field=CharField()),object_number=F('reccuring_invoice__rec_invoice_no'),object_date=F("reccuring_invoice__start_date"),object_total=F('reccuring_invoice__grandtotal'),object_balance=F('reccuring_invoice__balance'))
+        )+list(
+            Retaineritems.objects.filter(retainer__in=ret_inv,retainer__customer_name__in=customers).annotate(object_customer_id=F('retainer__customer_name'),object_type=Value("Retainer Invoice",output_field=CharField()),object_number=F('retainer__retainer_invoice_number'),object_date=F("retainer__retainer_invoice_date"),object_total=F('retainer__total_amount'),object_balance=F('retainer__balance'))
+        )+list(
+            Credit_Note_Items.objects.filter(company=cmp,credit_note__customer__in=customers).annotate(object_customer_id=F('credit_note__customer'),object_type=Value("Credit Note",output_field=CharField()),object_number=F('credit_note__credit_note_number'),object_date=F("credit_note__credit_note_date"),object_total=F('credit_note__grand_total'),object_balance=F('credit_note__balance'))
+        )+list(
+            Delivery_challan_item.objects.filter(company=cmp,delivery_challan__customer__in=customers).annotate(object_customer_id=F('delivery_challan__customer'),object_type=Value("Delivery Challan",output_field=CharField()),object_number=F('delivery_challan__challan_number'),object_date=F("delivery_challan__challan_date"),object_total=F('delivery_challan__grand_total'),object_balance=F('delivery_challan__balance'))
+        )
+
+
+        vendor_transactions = list(
+            BillItems.objects.filter(Company=cmp,Bills__Vendor__in=vendors).annotate(object_vendor_id=F('Bills__Vendor'),object_type=Value("Purchase Bill",output_field=CharField()),object_number=F('Bills__Bill_Number'),object_date=F("Bills__Bill_Date"),object_total=F('Bills__Grand_Total'),object_balance=F('Bills__Balance'))
+        )+list(
+            RecurrItemsList.objects.filter(recurr_bill_id__in=recurr_bill,recurr_bill_id__vendor_details__in=vendors).annotate(object_vendor_id=F('recurr_bill_id__vendor_details'),object_type=Value("Recurring Bill",output_field=CharField()),object_number=F('recurr_bill_id__recc_bill_no'),object_date=F("recurr_bill_id__rec_bill_date"),object_total=F('recurr_bill_id__total'),object_balance=F('recurr_bill_id__bal'))
+        )+list(
+            debitnote_item.objects.filter(company=cmp,debit_note__vendor__in=vendors).annotate(object_vendor_id=F('debit_note__vendor'),object_type=Value("Debit Note",output_field=CharField()),object_number=F('debit_note__debitnote_no'),object_date=F("debit_note__debitnote_date"),object_total=F('debit_note__grandtotal'),object_balance=F('debit_note__balance'))
+        )+list(
+            PurchaseOrderItems.objects.filter(company=cmp,purchase_order__vendor__in=vendors).annotate(object_vendor_id=F('purchase_order__vendor'),object_type=Value("Purchase Order",output_field=CharField()),object_number=Value('',output_field=CharField()),object_date=F("purchase_order__purchase_order_date"),object_total=F('purchase_order__grand_total'),object_balance=F('purchase_order__balance'))
+        )
+
+    total_receivable=0
+    cust_array = []
+    for cust in customers:
+        tot_balance=0
+        for tran in cust_transactions:
+            if cust.id == tran.object_customer_id:
+                tot_balance += float(tran.object_balance) 
+        total_receivable += float(tot_balance)
+        cust_array.append({
+            "party_name": cust.first_name+" "+cust.last_name,
+            "email":cust.customer_email,
+            "phone":cust.customer_mobile,
+            "receivable":tot_balance,
+            "payable":0,
+            "credit_limit":cust.credit_limit,
+        })
+    
+    for i in cust_transactions:
+        print(i.object_balance)
+
+    total_payable=0
+    vend_array = []
+    for vend in vendors:
+        tot_balance=0
+        for tran in vendor_transactions:
+            if vend.id == tran.object_vendor_id:
+                tot_balance += float(tran.object_balance) 
+        total_payable += float(tot_balance)
+        vend_array.append({
+            "party_name": vend.first_name+" "+vend.last_name,
+            "email":vend.vendor_email,
+            "phone":vend.mobile,
+            "receivable":0,
+            "payable":tot_balance,
+            "credit_limit":vend.credit_limit,
+        }) 
+
+    
+    if transaction == "account_payable":
+        all_parties=cust_array
+    elif transaction == "account_receivable":
+        all_parties=vend_array
+    else:
+        all_parties = cust_array+vend_array
+    
+    context = {
+        'cmp':cmp,
+        'log_details': dash_details,
+        'allmodules': allmodules,
+        'all_parties':all_parties,
+        'total_receivable':total_receivable,
+        'total_payable':total_payable,
+
+    }
+    return render(request, 'zohomodules/Reports/all_parties.html',context)
+        
+        
+
+        

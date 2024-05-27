@@ -105,6 +105,17 @@
   <td style="text-align: center;">{{selitem.opening_stock_per_unit}}</td>
   <td style="text-align: center;"></td>
 </tr>
+{% for trans in transactions %}
+<tr>
+  <td style="text-align: center;">{{forloop.counter|add:'1'}}</td>
+  <td style="text-align: center;">{{trans.object_type}}</td>
+  <td style="text-align: center;">{{ trans.object_name }}</td>
+  <td style="text-align: center;">{{ trans.object_date|date:"Y-m-d" }}</td>
+  <td style="text-align: center;">{{trans.object_qty}}</td>
+  <td style="text-align: center;">{{trans.object_price|floatformat:'1'}}</td>
+  <td style="text-align: center;">{{ trans.object_status }}</td>
+</tr>
+{% endfor %}
 
 
 <!-- Add more rows as needed -->
