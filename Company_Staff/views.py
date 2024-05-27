@@ -53575,6 +53575,8 @@ def all_parties(request):
             PurchaseOrderItems.objects.filter(company=cmp,purchase_order__vendor__in=vendors,purchase_order__purchase_order_date__range=[startDate,endDate]).annotate(object_vendor_id=F('purchase_order__vendor'),object_type=Value("Purchase Order",output_field=CharField()),object_number=Value('',output_field=CharField()),object_date=F("purchase_order__purchase_order_date"),object_total=F('purchase_order__grand_total'),object_balance=F('purchase_order__balance'))
         )
     else:
+        startDate=''
+        endDate=''
         cust_transactions = list(
             invoiceitems.objects.filter(company=cmp,invoice__customer__in=customers).annotate(object_customer_id=F('invoice__customer'),object_type=Value("Invoice",output_field=CharField()),object_number=F('invoice__invoice_number'),object_date=F("invoice__date"),object_total=F('invoice__sub_total'),object_balance=F('invoice__balance'))
         )+list(
@@ -53652,7 +53654,8 @@ def all_parties(request):
         'all_parties':all_parties,
         'total_receivable':total_receivable,
         'total_payable':total_payable,
-
+        'startDate':startDate,
+        'endDate':endDate,
     }
     return render(request, 'zohomodules/Reports/all_parties.html',context)
         
